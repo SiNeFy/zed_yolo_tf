@@ -1,0 +1,17 @@
+# --- ROS 2 Build Artifacts ---
+build/
+install/
+log/
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.tox/
+.coverage
+nosetests.xml
+coverage.xml
+*.egg-info/
+.installed.cfg
+*.egg
