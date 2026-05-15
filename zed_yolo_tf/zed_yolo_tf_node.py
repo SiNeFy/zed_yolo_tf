@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.duration import Duration
+from rclpy.qos import QoSProfile, DurabilityPolicy
 
 from sensor_msgs.msg import Image, CameraInfo
 from geometry_msgs.msg import PointStamped
@@ -11,17 +12,19 @@ from zed_msgs.msg import ObjectsStamped
 from cv_bridge import CvBridge
 import numpy as np
 
+from cone_follower_msgs.msg import Cone, ConeArray
+
 import cv2
-
-# ===== YOLO（先用假資料）=====
-def fake_yolo_detect(image):
-    h, w, _ = image.shape
-    return int(w / 2), int(h / 2)
-
 
 class ZedYoloTF(Node):
     def __init__(self):
         super().__init__('zed_yolo_tf')
+
+        #qos setting from cone follower centerline generator node
+        qos_profile = QoSProfile( 
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        )
 
         self.bridge = CvBridge()
 
@@ -43,6 +46,12 @@ class ZedYoloTF(Node):
             self.Obj_detect_callback,
             10)
 
+        self.conePub = self.create_publisher(
+            ConeArray,
+            '/cones',
+            qos_profile
+        )
+
         self.rgb_image = None
         self.last_stamp = None
 
@@ -61,13 +70,18 @@ class ZedYoloTF(Node):
 
     def Obj_detect_callback(self, msg):
 
-        if msg.objects is None or self.rgb_image is None:
-            self.get_logger().info("no rgb image or detected obj")
+        if self.rgb_image is None:
+            self.get_logger().info("no rgb image")
             return
 
         obj_num = len(msg.objects)
 
         self.get_logger().info(f"Detected objects: {obj_num}")
+
+        if obj_num < 1:
+            return
+
+        coneArr_msg = ConeArray()
 
         for i, obj in enumerate(msg.objects):
             y1 = obj.bounding_box_2d.corners[0].kp[1]
@@ -76,25 +90,34 @@ class ZedYoloTF(Node):
             x2 = obj.bounding_box_2d.corners[2].kp[0]
 
             crop = self.rgb_image[(y1+y2)//2:y2, (2*x1+x2)//3:(x1+2*x2)//3]
-            cv2.imshow("crop", crop)
-            cv2.waitKey(1)
-            self.get_logger().info(f"{crop.shape}, confidence: {obj.confidence}")
-            self.get_logger().info(f"state: {obj.tracking_state}")
-            self.get_logger().info(f"velocity: {obj.velocity}")
+            # cv2.imshow("crop", crop)
+            # cv2.waitKey(1)
+            # self.get_logger().info(f"{crop.shape}, confidence: {obj.confidence}")
+            # self.get_logger().info(f"state: {obj.tracking_state}")
+            # self.get_logger().info(f"velocity: {obj.velocity}")
         
             hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
             mean_h = np.mean(hsv[:, :, 0])
 
-            color = None
+            cone = Cone()
+            cone.x = float(obj.position[0]) # converting float32 to float64
+            cone.y = float(obj.position[1])
+            cone.z = float(obj.position[2])
+
             if 90 <= mean_h <= 120:
-                color = "BLUE"
+                cone.color = 'blue'
             elif 25 <= mean_h <= 45:
-                color = "YELLOW"
+                cone.color = 'yellow'
             else:
-                color = "UNKNOWN"
+                self.get_logger().warn('cone color unknown')
+                cone.color = 'unknown'
             self.get_logger().info(
-                f"Object {i} {color}:, x:{obj.position[0]} y:{obj.position[1]} z:{obj.position[2]}"
-            )      
+                f"Object {i} {cone.color}, x:{obj.position[0]} y:{obj.position[1]} z:{obj.position[2]}"
+            )
+            coneArr_msg.cones.append(cone)
+        
+        self.conePub.publish(coneArr_msg)
+        self.get_logger().info("Published cone array")
 
     # ===== 主流程 =====
     # def process(self):

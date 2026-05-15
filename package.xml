@@ -13,6 +13,7 @@
   <test_depend>python3-pytest</test_depend>
   <depend>zed_msgs</depend>
   <depend>cv_bridge</depend>
+  <exec_depend>cone_follower_msgs</exec_depend>
 
   <export>
     <build_type>ament_python</build_type>
